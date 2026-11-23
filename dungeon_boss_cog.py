@@ -299,14 +299,4 @@ class BossFightSession:
     )
     embed.add_field(
         name="🛡️ Challenger HP",
-        value=f"`{player_bar}` **{self.player_hp}/{self.player_max_hp}**",
-        inline=False,
-    )
-    if self.loot_summary:
-      embed.add_field(
-          name="🎁 Loot Pool Roll",
-          value=self.loot_summary,
-          inline=False,
-      )
-    embed.add_field(
-        name="📜 Combat
+        value=f"`{player_bar}` **{self.player_hp}/{self.player_max_hp
