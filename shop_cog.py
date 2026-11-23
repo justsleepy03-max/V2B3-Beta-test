@@ -65,6 +65,31 @@ SHOP_ITEMS = {
         "summary": "+19 DEF • Reinforced V2 Lab plating",
         "fallback_meta": {"name": "Abyssal Aegis", "emoji": "🔮", "category": "armor", "def": 19},
     },
+    # Fishing Rods
+    "old_rod": {
+        "name": "Old Rod",
+        "emoji": "🎣",
+        "category": "rod",
+        "price": 120,
+        "summary": "Tier 1 Rod • Unlocks /area fishing",
+        "fallback_meta": {"name": "Old Rod", "emoji": "🎣", "category": "rod", "tier": 1},
+    },
+    "good_rod": {
+        "name": "Good Rod",
+        "emoji": "🪝",
+        "category": "rod",
+        "price": 280,
+        "summary": "Tier 2 Rod • Sturdy rod for regular fishing",
+        "fallback_meta": {"name": "Good Rod", "emoji": "🪝", "category": "rod", "tier": 2},
+    },
+    "super_rod": {
+        "name": "Super Rod",
+        "emoji": "🎏",
+        "category": "rod",
+        "price": 520,
+        "summary": "Tier 3 Rod • High-tier lab fishing tackle",
+        "fallback_meta": {"name": "Super Rod", "emoji": "🎏", "category": "rod", "tier": 3},
+    },
     # Materials & Blueprints
     "sentinel_core_shard": {
         "name": "Sentinel Core Shard",
@@ -138,12 +163,29 @@ def _ensure_catalog_entry(item_key: str) -> dict | None:
 
 def _items_for_tab(tab: str) -> list[tuple[str, dict]]:
   if tab == "gear":
-    allowed = {"weapon", "armor"}
+    allowed = {"weapon", "armor", "rod"}
   elif tab == "materials":
     allowed = {"material", "blueprint"}
   else:
-    allowed = {"weapon", "armor", "material", "blueprint"}
+    allowed = {"weapon", "armor", "rod", "material", "blueprint"}
   return [(k, v) for k, v in SHOP_ITEMS.items() if v["category"] in allowed]
+
+
+def _equip_item_if_applicable(user_id: int, key: str, category: str, item_name: str) -> str:
+  if category not in ("weapon", "armor", "rod"):
+    return ""
+  all_bags = load_all_bags()
+  uid = str(user_id)
+  if uid not in all_bags:
+    return ""
+  if category == "weapon":
+    all_bags[uid]["equipped_weapon"] = key
+  elif category == "armor":
+    all_bags[uid]["equipped_armor"] = key
+  elif category == "rod":
+    all_bags[uid]["equipped_rod"] = key
+  save_all_bags(all_bags)
+  return f" • ⚡ Auto-equipped **{item_name}**"
 
 
 class ShopBuySelect(discord.ui.Select):
@@ -195,24 +237,16 @@ class ShopBuySelect(discord.ui.Select):
       )
       return
 
-    updated_bag = add_item_to_bag(
+    add_item_to_bag(
         user_id=interaction.user.id,
         item_key=key,
         qty=1,
         coins=-cost,
     )
 
-    equipped_note = ""
-    if meta["category"] in ("weapon", "armor"):
-      all_bags = load_all_bags()
-      uid = str(interaction.user.id)
-      if uid in all_bags:
-        if meta["category"] == "weapon":
-          all_bags[uid]["equipped_weapon"] = key
-        else:
-          all_bags[uid]["equipped_armor"] = key
-        save_all_bags(all_bags)
-        equipped_note = f" • ⚡ Auto-equipped **{shop_entry['name']}**"
+    equipped_note = _equip_item_if_applicable(
+        interaction.user.id, key, meta["category"], shop_entry["name"]
+    )
 
     self.parent_view.selector_open = False
     self.parent_view.status_banner = (
@@ -314,7 +348,7 @@ class ShopView(discord.ui.View):
         embed.add_field(name=title, value="\n".join(lines), inline=False)
 
     if self.tab in ("all", "gear"):
-      format_section({"weapon", "armor"}, "⚔️ Weapons & Armor")
+      format_section({"weapon", "armor", "rod"}, "⚔️ Weapons, Armor & Rods")
     if self.tab in ("all", "materials"):
       format_section({"material", "blueprint"}, "🧪 Materials & Blueprints")
 
@@ -330,122 +364,4 @@ class ShopView(discord.ui.View):
     self.tab = tab
     self._rebuild_components()
     await interaction.response.edit_message(
-        embed=self.build_embed(interaction.user.display_name), view=self
-    )
-
-  async def _all_callback(self, interaction: discord.Interaction):
-    await self._switch_tab(interaction, "all")
-
-  async def _gear_callback(self, interaction: discord.Interaction):
-    await self._switch_tab(interaction, "gear")
-
-  async def _mats_callback(self, interaction: discord.Interaction):
-    await self._switch_tab(interaction, "materials")
-
-  async def _toggle_buy_callback(self, interaction: discord.Interaction):
-    if interaction.user.id != self.user_id:
-      await interaction.response.send_message(
-          "Only the player who opened this shop view can use the Buy button.",
-          ephemeral=True,
-      )
-      return
-    self.selector_open = not self.selector_open
-    self._rebuild_components()
-    await interaction.response.edit_message(
-        embed=self.build_embed(interaction.user.display_name), view=self
-    )
-
-
-class LabShopCog(commands.Cog):
-
-  def __init__(self, bot: commands.Bot):
-    self.bot = bot
-
-  @app_commands.command(
-      name="shop", description="Browse and buy from the V2 Lab economy shop."
-  )
-  async def shop(self, interaction: discord.Interaction):
-    view = ShopView(user_id=interaction.user.id, initial_tab="all")
-    await interaction.response.send_message(
-        embed=view.build_embed(interaction.user.display_name), view=view
-    )
-
-  @app_commands.command(
-      name="buy", description="Buy an item from the V2 Lab shop using your coins."
-  )
-  @app_commands.choices(
-      item=[
-          app_commands.Choice(name="Iron Blade (180 Coins)", value="iron_blade"),
-          app_commands.Choice(name="Stormfang Dagger (320 Coins)", value="stormfang_dagger"),
-          app_commands.Choice(name="Sunfire Halberd (420 Coins)", value="sunfire_halberd"),
-          app_commands.Choice(name="Runed Greatsword (550 Coins)", value="runed_greatsword"),
-          app_commands.Choice(name="Starlight Blade (750 Coins)", value="starlight_blade"),
-          app_commands.Choice(name="Brigandine Vest (200 Coins)", value="brigandine"),
-          app_commands.Choice(name="Warden Plate (450 Coins)", value="warden_plate"),
-          app_commands.Choice(name="Abyssal Aegis (680 Coins)", value="abyssal_aegis"),
-          app_commands.Choice(name="Sentinel Core Shard (90 Coins)", value="sentinel_core_shard"),
-          app_commands.Choice(name="Arcane Alloy (110 Coins)", value="arcane_alloy"),
-          app_commands.Choice(name="Cinder Ember (95 Coins)", value="cinder_ember"),
-          app_commands.Choice(name="Frost Core (95 Coins)", value="frost_core"),
-          app_commands.Choice(name="Shadow Silk (100 Coins)", value="shadow_silk"),
-          app_commands.Choice(name="Ember Catalyst (160 Coins)", value="ember_catalyst"),
-          app_commands.Choice(name="Blueprint: Runed Greatsword (500 Coins)", value="bp_runed_greatsword"),
-          app_commands.Choice(name="Blueprint: Warden Plate (480 Coins)", value="bp_warden_plate"),
-      ]
-  )
-  async def buy(
-      self,
-      interaction: discord.Interaction,
-      item: app_commands.Choice[str],
-      quantity: int = 1,
-      auto_equip: bool = False,
-  ):
-    key = item.value
-    shop_entry = SHOP_ITEMS.get(key)
-    meta = _ensure_catalog_entry(key)
-    if not shop_entry or not meta:
-      await interaction.response.send_message(
-          "That item isn't available in the V2 shop.", ephemeral=True
-      )
-      return
-
-    qty = max(1, min(quantity, 25))
-    total_cost = shop_entry["price"] * qty
-    bag = get_user_bag(interaction.user.id)
-    current_coins = bag.get("coins", 0)
-
-    if current_coins < total_cost:
-      await interaction.response.send_message(
-          f"❌ Not enough coins! **{shop_entry['name']} x{qty}** costs **`{total_cost}`** Coins, "
-          f"but you only have **`{current_coins}`** Coins.",
-          ephemeral=True,
-      )
-      return
-
-    updated_bag = add_item_to_bag(
-        user_id=interaction.user.id,
-        item_key=key,
-        qty=qty,
-        coins=-total_cost,
-    )
-
-    equip_msg = ""
-    if auto_equip and meta["category"] in ("weapon", "armor"):
-      all_bags = load_all_bags()
-      uid = str(interaction.user.id)
-      if uid in all_bags:
-        if meta["category"] == "weapon":
-          all_bags[uid]["equipped_weapon"] = key
-        else:
-          all_bags[uid]["equipped_armor"] = key
-        save_all_bags(all_bags)
-        equip_msg = f" • ⚡ Equipped **{shop_entry['name']}**!"
-
-    await interaction.response.send_message(
-        f"✅ Bought **{qty}x** {shop_entry['emoji']} **{shop_entry['name']}** for **`{total_cost}`** Coins "
-        f"(Remaining Balance: **`{updated_bag['coins']}`** Coins){equip_msg}"
-    )
-
-
-async def setup(bot: commands.Bot):
-  await bot.add_cog(LabShopCog(bot))
+        embed=self.build_embed(interaction.user.display_name),
