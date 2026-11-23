@@ -10,6 +10,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 COGS = [
     "dungeon_boss_cog",
+    "bag_cog",
 ]
 
 
