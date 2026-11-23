@@ -40,7 +40,13 @@ SHOP_ITEMS = {
         "category": "weapon",
         "price": 750,
         "summary": "+28 ATK • 24% Crit (2.1x) • V2 Lab Prototype",
-        "fallback_meta": {"name": "Starlight Blade", "emoji": "🌟", "category": "weapon", "atk": 28, "crit": 0.24},
+        "fallback_meta": {
+            "name": "Starlight Blade",
+            "emoji": "🌟",
+            "category": "weapon",
+            "atk": 28,
+            "crit": 0.24,
+        },
     },
     # Armors
     "brigandine": {
@@ -63,7 +69,12 @@ SHOP_ITEMS = {
         "category": "armor",
         "price": 680,
         "summary": "+19 DEF • Reinforced V2 Lab plating",
-        "fallback_meta": {"name": "Abyssal Aegis", "emoji": "🔮", "category": "armor", "def": 19},
+        "fallback_meta": {
+            "name": "Abyssal Aegis",
+            "emoji": "🔮",
+            "category": "armor",
+            "def": 19,
+        },
     },
     # Fishing Rods
     "old_rod": {
@@ -132,7 +143,11 @@ SHOP_ITEMS = {
         "category": "material",
         "price": 160,
         "summary": "Volatile V2 synthesis reagent",
-        "fallback_meta": {"name": "Ember Catalyst", "emoji": "🧪", "category": "material"},
+        "fallback_meta": {
+            "name": "Ember Catalyst",
+            "emoji": "🧪",
+            "category": "material",
+        },
     },
     "bp_runed_greatsword": {
         "name": "Blueprint: Runed Greatsword",
@@ -171,7 +186,9 @@ def _items_for_tab(tab: str) -> list[tuple[str, dict]]:
   return [(k, v) for k, v in SHOP_ITEMS.items() if v["category"] in allowed]
 
 
-def _equip_item_if_applicable(user_id: int, key: str, category: str, item_name: str) -> str:
+def _equip_item_if_applicable(
+    user_id: int, key: str, category: str, item_name: str
+) -> str:
   if category not in ("weapon", "armor", "rod"):
     return ""
   all_bags = load_all_bags()
@@ -275,7 +292,11 @@ class ShopView(discord.ui.View):
 
     all_btn = discord.ui.Button(
         label="All Items",
-        style=discord.ButtonStyle.primary if self.tab == "all" else discord.ButtonStyle.secondary,
+        style=(
+            discord.ButtonStyle.primary
+            if self.tab == "all"
+            else discord.ButtonStyle.secondary
+        ),
         emoji="🛒",
         row=0,
     )
@@ -283,85 +304,8 @@ class ShopView(discord.ui.View):
 
     gear_btn = discord.ui.Button(
         label="Gear",
-        style=discord.ButtonStyle.primary if self.tab == "gear" else discord.ButtonStyle.secondary,
-        emoji="⚔️",
-        row=0,
-    )
-    gear_btn.callback = self._gear_callback
-
-    mats_btn = discord.ui.Button(
-        label="Materials",
-        style=discord.ButtonStyle.primary if self.tab == "materials" else discord.ButtonStyle.secondary,
-        emoji="🧪",
-        row=0,
-    )
-    mats_btn.callback = self._mats_callback
-
-    buy_btn = discord.ui.Button(
-        label="Cancel Buy" if self.selector_open else "Buy Item",
-        style=discord.ButtonStyle.secondary if self.selector_open else discord.ButtonStyle.success,
-        emoji="✖️" if self.selector_open else "🛍️",
-        row=0,
-    )
-    buy_btn.callback = self._toggle_buy_callback
-
-    self.add_item(all_btn)
-    self.add_item(gear_btn)
-    self.add_item(mats_btn)
-    self.add_item(buy_btn)
-
-    if self.selector_open:
-      select_menu = ShopBuySelect(self)
-      select_menu.row = 1
-      self.add_item(select_menu)
-
-  def build_embed(self, username: str) -> discord.Embed:
-    bag = get_user_bag(self.user_id)
-    coins = bag.get("coins", 0)
-    owned = bag.get("items", {})
-
-    desc_lines = [
-        f"💰 **Your Balance:** `{coins}` Coins • View: **`{self.tab.upper()}`**",
-        "Click **Buy Item** below to open the item dropdown menu.",
-    ]
-    if self.status_banner:
-      desc_lines.append(self.status_banner)
-
-    embed = discord.Embed(
-        title=f"🛒 V2 Lab Economy Shop — {username}",
-        description="\n".join(desc_lines),
-        color=0x00F0FF,
-    )
-
-    def format_section(categories: set[str], title: str):
-      lines = []
-      for key, info in SHOP_ITEMS.items():
-        if info["category"] not in categories:
-          continue
-        qty_owned = owned.get(key, 0)
-        owned_tag = f" *(Owned: x{qty_owned})*" if qty_owned > 0 else ""
-        lines.append(
-            f"{info['emoji']} **{info['name']}** — `{info['price']}` Coins{owned_tag}\n"
-            f"└ *{info['summary']}*"
-        )
-      if lines:
-        embed.add_field(name=title, value="\n".join(lines), inline=False)
-
-    if self.tab in ("all", "gear"):
-      format_section({"weapon", "armor", "rod"}, "⚔️ Weapons, Armor & Rods")
-    if self.tab in ("all", "materials"):
-      format_section({"material", "blueprint"}, "🧪 Materials & Blueprints")
-
-    return embed
-
-  async def _switch_tab(self, interaction: discord.Interaction, tab: str):
-    if interaction.user.id != self.user_id:
-      await interaction.response.send_message(
-          "Only the player who opened this shop view can switch tabs.",
-          ephemeral=True,
-      )
-      return
-    self.tab = tab
-    self._rebuild_components()
-    await interaction.response.edit_message(
-        embed=self.build_embed(interaction.user.display_name),
+        style=(
+            discord.ButtonStyle.primary
+            if self.tab == "gear"
+            else discord.ButtonStyle.secondary
+        ),
