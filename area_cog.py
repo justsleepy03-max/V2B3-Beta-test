@@ -177,13 +177,29 @@ def record_activity_and_loot(user_id: int, action: str) -> str:
   add_item_to_bag(user_id=user_id, item_key="", qty=0, coins=coins_earned)
   found_lines.append(f"💰 **+{coins_earned} Coins**")
 
+  completed_quests = []
+  try:
+    from quest_cog import advance_area_quests
+
+    completed_quests = advance_area_quests(user_id, area_key, action)
+  except ImportError:
+    completed_quests = []
+
+  quest_note = ""
+  if completed_quests:
+    quest_note = " • 📜 Quest Ready: **" + ", ".join(completed_quests) + "**"
+
   verb_map = {
       "gather": "🌿 Gathered in",
       "hunt": "🏹 Hunted in",
       "fish": "🎣 Fished in",
   }
   prefix = verb_map.get(action, "Explored")
-  return f"{prefix} **{area_info['name']}** (#{stats[action]}): " + " • ".join(found_lines)
+  return (
+      f"{prefix} **{area_info['name']}** (#{stats[action]}): "
+      + " • ".join(found_lines)
+      + quest_note
+  )
 
 
 class AreaTravelSelect(discord.ui.Select):
