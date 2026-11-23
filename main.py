@@ -12,6 +12,7 @@ COGS = [
     "dungeon_boss_cog",
     "bag_cog",
     "shop_cog",
+    "area_cog",
 ]
 
 
