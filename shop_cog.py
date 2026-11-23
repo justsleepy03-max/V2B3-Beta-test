@@ -309,3 +309,193 @@ class ShopView(discord.ui.View):
             if self.tab == "gear"
             else discord.ButtonStyle.secondary
         ),
+        emoji="⚔️",
+        row=0,
+    )
+    gear_btn.callback = self._gear_callback
+
+    mats_btn = discord.ui.Button(
+        label="Materials",
+        style=(
+            discord.ButtonStyle.primary
+            if self.tab == "materials"
+            else discord.ButtonStyle.secondary
+        ),
+        emoji="🧪",
+        row=0,
+    )
+    mats_btn.callback = self._mats_callback
+
+    buy_btn = discord.ui.Button(
+        label="Cancel Buy" if self.selector_open else "Buy Item",
+        style=(
+            discord.ButtonStyle.secondary
+            if self.selector_open
+            else discord.ButtonStyle.success
+        ),
+        emoji="✖️" if self.selector_open else "🛍️",
+        row=0,
+    )
+    buy_btn.callback = self._toggle_buy_callback
+
+    self.add_item(all_btn)
+    self.add_item(gear_btn)
+    self.add_item(mats_btn)
+    self.add_item(buy_btn)
+
+    if self.selector_open:
+      select_menu = ShopBuySelect(self)
+      select_menu.row = 1
+      self.add_item(select_menu)
+
+  def build_embed(self, username: str) -> discord.Embed:
+    bag = get_user_bag(self.user_id)
+    coins = bag.get("coins", 0)
+    owned = bag.get("items", {})
+
+    desc_lines = [
+        f"💰 **Your Balance:** `{coins}` Coins • View: **`{self.tab.upper()}`**",
+        "Click **Buy Item** below to open the item dropdown menu.",
+    ]
+    if self.status_banner:
+      desc_lines.append(self.status_banner)
+
+    embed = discord.Embed(
+        title=f"🛒 V2 Lab Economy Shop — {username}",
+        description="\n".join(desc_lines),
+        color=0x00F0FF,
+    )
+
+    def format_section(categories: set[str], title: str):
+      lines = []
+      for key, info in SHOP_ITEMS.items():
+        if info["category"] not in categories:
+          continue
+        qty_owned = owned.get(key, 0)
+        owned_tag = f" *(Owned: x{qty_owned})*" if qty_owned > 0 else ""
+        lines.append(
+            f"{info['emoji']} **{info['name']}** — `{info['price']}` Coins{owned_tag}\n"
+            f"└ *{info['summary']}*"
+        )
+      if lines:
+        embed.add_field(name=title, value="\n".join(lines), inline=False)
+
+    if self.tab in ("all", "gear"):
+      format_section({"weapon", "armor", "rod"}, "⚔️ Weapons, Armor & Rods")
+    if self.tab in ("all", "materials"):
+      format_section({"material", "blueprint"}, "🧪 Materials & Blueprints")
+
+    return embed
+
+  async def _switch_tab(self, interaction: discord.Interaction, tab: str):
+    if interaction.user.id != self.user_id:
+      await interaction.response.send_message(
+          "Only the player who opened this shop view can switch tabs.",
+          ephemeral=True,
+      )
+      return
+    self.tab = tab
+    self._rebuild_components()
+    await interaction.response.edit_message(
+        embed=self.build_embed(interaction.user.display_name), view=self
+    )
+
+  async def _all_callback(self, interaction: discord.Interaction):
+    await self._switch_tab(interaction, "all")
+
+  async def _gear_callback(self, interaction: discord.Interaction):
+    await self._switch_tab(interaction, "gear")
+
+  async def _mats_callback(self, interaction: discord.Interaction):
+    await self._switch_tab(interaction, "materials")
+
+  async def _toggle_buy_callback(self, interaction: discord.Interaction):
+    if interaction.user.id != self.user_id:
+      await interaction.response.send_message(
+          "Only the player who opened this shop view can use the Buy button.",
+          ephemeral=True,
+      )
+      return
+    self.selector_open = not self.selector_open
+    self._rebuild_components()
+    await interaction.response.edit_message(
+        embed=self.build_embed(interaction.user.display_name), view=self
+    )
+
+
+class LabShopCog(commands.Cog):
+
+  def __init__(self, bot: commands.Bot):
+    self.bot = bot
+
+  @app_commands.command(
+      name="shop", description="Browse and buy from the V2 Lab economy shop."
+  )
+  async def shop(self, interaction: discord.Interaction):
+    view = ShopView(user_id=interaction.user.id, initial_tab="all")
+    await interaction.response.send_message(
+        embed=view.build_embed(interaction.user.display_name), view=view
+    )
+
+  @app_commands.command(
+      name="buy", description="Buy an item from the V2 Lab shop using your coins."
+  )
+  @app_commands.choices(
+      item=[
+          app_commands.Choice(
+              name=f"{info['name']} ({info['price']} Coins)"[:100],
+              value=key,
+          )
+          for key, info in list(SHOP_ITEMS.items())[:25]
+      ]
+  )
+  async def buy(
+      self,
+      interaction: discord.Interaction,
+      item: app_commands.Choice[str],
+      quantity: int = 1,
+      auto_equip: bool = False,
+  ):
+    key = item.value
+    shop_entry = SHOP_ITEMS.get(key)
+    meta = _ensure_catalog_entry(key)
+    if not shop_entry or not meta:
+      await interaction.response.send_message(
+          "That item isn't available in the V2 shop.", ephemeral=True
+      )
+      return
+
+    qty = max(1, min(quantity, 25))
+    total_cost = shop_entry["price"] * qty
+    bag = get_user_bag(interaction.user.id)
+    current_coins = bag.get("coins", 0)
+
+    if current_coins < total_cost:
+      await interaction.response.send_message(
+          f"❌ Not enough coins! **{shop_entry['name']} x{qty}** costs **`{total_cost}`** Coins, "
+          f"but you only have **`{current_coins}`** Coins.",
+          ephemeral=True,
+      )
+      return
+
+    updated_bag = add_item_to_bag(
+        user_id=interaction.user.id,
+        item_key=key,
+        qty=qty,
+        coins=-total_cost,
+    )
+
+    equip_msg = ""
+    if auto_equip:
+      equip_msg = _equip_item_if_applicable(
+          interaction.user.id, key, meta["category"], shop_entry["name"]
+      )
+
+    await interaction.response.send_message(
+        f"✅ Bought **{qty}x** {shop_entry['emoji']} **{shop_entry['name']}** for **`{total_cost}`** Coins "
+        f"(Remaining Balance: **`{updated_bag['coins']}`** Coins){equip_msg}"
+    )
+
+
+async def setup(bot: commands.Bot):
+  await bot.add_cog(LabShopCog(bot))
