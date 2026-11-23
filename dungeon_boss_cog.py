@@ -77,30 +77,126 @@ ARMORS = {
     "warden_plate": {"name": "Warden Plate", "def": 14, "emoji": "🛡️"},
 }
 
-BAR_STYLES = [
-    ("🟥", "░", "Phase 1: Armored Warden", 16, 0xFF3B5C),
-    ("🟧", "░", "Phase 2: Overcharged Core", 24, 0xFF9F1C),
-    ("🟪", "░", "Phase 3: Abyssal Meltdown", 32, 0xB5179E),
+BOSS_ROSTER = [
+    {
+        "name": "Abyssal Sentinel",
+        "emoji": "👹",
+        "bar_hp": 150,
+        "bars": [
+            ("🟥", "░", "Phase 1: Armored Warden", 16, 0xFF3B5C),
+            ("🟧", "░", "Phase 2: Overcharged Core", 24, 0xFF9F1C),
+            ("🟪", "░", "Phase 3: Abyssal Meltdown", 32, 0xB5179E),
+        ],
+        "loot": {
+            "coins": (120, 200),
+            "guaranteed": ("💠 Sentinel Core Shard", 1, 3),
+            "bonus": ("⚙️ Arcane Alloy", 1, 2, 0.55),
+            "rare": ("📜 Blueprint: Runed Greatsword", 0.20),
+        },
+    },
+    {
+        "name": "Cinder Wyrm",
+        "emoji": "🐉",
+        "bar_hp": 140,
+        "bars": [
+            ("🟥", "░", "Phase 1: Ember Scales", 18, 0xFF4D29),
+            ("🟧", "░", "Phase 2: Magma Maw", 26, 0xFF7B00),
+            ("🟪", "░", "Phase 3: Supernova Roar", 34, 0xD00000),
+        ],
+        "loot": {
+            "coins": (140, 220),
+            "guaranteed": ("🔥 Cinder Ember", 2, 4),
+            "bonus": ("🌋 Volcanic Fang", 1, 2, 0.50),
+            "rare": ("🔱 Sunfire Halberd (Drop)", 0.18),
+        },
+    },
+    {
+        "name": "Frostbound Behemoth",
+        "emoji": "🧊",
+        "bar_hp": 165,
+        "bars": [
+            ("🟦", "░", "Phase 1: Permafrost Shell", 15, 0x00B4D8),
+            ("🟪", "░", "Phase 2: Glacial Surge", 22, 0x4895EF),
+            ("⬜", "░", "Phase 3: Absolute Zero", 30, 0x3F37C9),
+        ],
+        "loot": {
+            "coins": (130, 210),
+            "guaranteed": ("❄️ Frost Core", 2, 3),
+            "bonus": ("🛡️ Behemoth Hide", 1, 2, 0.60),
+            "rare": ("🛡️ Blueprint: Warden Plate", 0.22),
+        },
+    },
+    {
+        "name": "Shadow Weaver",
+        "emoji": "🕸️",
+        "bar_hp": 135,
+        "bars": [
+            ("🟪", "░", "Phase 1: Veil of Dusk", 17, 0x9B5DE5),
+            ("🟥", "░", "Phase 2: Phantom Dance", 25, 0xF15BB5),
+            ("⬛", "░", "Phase 3: Eclipse Spire", 33, 0x5A189A),
+        ],
+        "loot": {
+            "coins": (135, 225),
+            "guaranteed": ("🌑 Shadow Silk", 2, 4),
+            "bonus": ("🗡️ Nightfang Shard", 1, 2, 0.50),
+            "rare": ("🗡️ Stormfang Dagger (Drop)", 0.20),
+        },
+    },
 ]
 
 
-def render_bar(current: int, maximum: int, fill_char: str, empty_char: str, length: int = 12) -> str:
+def render_bar(
+    current: int,
+    maximum: int,
+    fill_char: str,
+    empty_char: str,
+    length: int = 12,
+) -> str:
   current = max(0, min(current, maximum))
   filled = round((current / maximum) * length) if maximum > 0 else 0
   return (fill_char * filled) + (empty_char * (length - filled))
 
 
+def roll_boss_loot(boss_data: dict) -> str:
+  loot = boss_data["loot"]
+  c_min, c_max = loot["coins"]
+  coins = random.randint(c_min, c_max)
+
+  g_name, g_min, g_max = loot["guaranteed"]
+  g_qty = random.randint(g_min, g_max)
+
+  lines = [
+      f"💰 **+{coins} Coins**",
+      f"{g_name} `x{g_qty}`",
+  ]
+
+  b_name, b_min, b_max, b_chance = loot["bonus"]
+  if random.random() < b_chance:
+    b_qty = random.randint(b_min, b_max)
+    lines.append(f"{b_name} `x{b_qty}` *(Bonus Roll!)*")
+
+  r_name, r_chance = loot["rare"]
+  if random.random() < r_chance:
+    lines.append(f"✨ **RARE DROP:** {r_name}")
+
+  return "\n".join(lines)
+
+
 class BossFightSession:
 
-  def __init__(self, challenger_id: int, weapon_key: str, armor_key: str):
+  def __init__(
+      self, challenger_id: int, weapon_key: str, armor_key: str, boss_data: dict
+  ):
     self.challenger_id = challenger_id
     self.weapon = WEAPONS.get(weapon_key, WEAPONS["rusty_sword"])
     self.armor = ARMORS.get(armor_key, ARMORS["worn_cloth"])
-    self.boss_name = "Abyssal Sentinel"
+    self.boss_data = boss_data
+    self.boss_name = boss_data["name"]
+    self.boss_emoji = boss_data["emoji"]
+    self.bar_styles = boss_data["bars"]
 
-    # 3 stacked health bars of 150 HP each = 450 total HP
-    self.bar_hp = 150
-    self.bars_count = 3
+    self.bar_hp = boss_data["bar_hp"]
+    self.bars_count = len(self.bar_styles)
     self.total_max_hp = self.bar_hp * self.bars_count
     self.hp = self.total_max_hp
 
@@ -110,25 +206,26 @@ class BossFightSession:
     self.guarding = False
     self.burn_turns_left = 0
     self.finished = False
+    self.loot_summary: str | None = None
     self.last_log = (
         f"Equipped {self.weapon['emoji']} **{self.weapon['name']}** "
         f"(`+{self.weapon['atk']} ATK` • `{int(self.weapon['crit_chance'] * 100)}%` Crit "
         f"`{self.weapon['crit_mult']}x`) and {self.armor['emoji']} **{self.armor['name']}** "
         f"(`+{self.armor['def']} DEF`).\n"
-        f"The **Abyssal Sentinel** rises with **3 HP bars** ({self.total_max_hp} total HP)!"
+        f"Random encounter: {self.boss_emoji} **{self.boss_name}** appeared with "
+        f"**{self.bars_count} HP bars** ({self.total_max_hp} total HP)!"
     )
 
   def _active_bar_index(self) -> int:
-    """Returns 0 for first bar (top), 1 for second bar, 2 for final bar."""
     if self.hp <= 0:
-      return len(BAR_STYLES) - 1
+      return len(self.bar_styles) - 1
     lost_hp = self.total_max_hp - self.hp
-    return min(len(BAR_STYLES) - 1, lost_hp // self.bar_hp)
+    return min(len(self.bar_styles) - 1, lost_hp // self.bar_hp)
 
   def current_phase_info(self):
     idx = self._active_bar_index()
-    fill_char, empty_char, phase_name, boss_dmg, color = BAR_STYLES[idx]
-    bars_remaining_after_current = max(0, (len(BAR_STYLES) - 1) - idx)
+    fill_char, empty_char, phase_name, boss_dmg, color = self.bar_styles[idx]
+    bars_remaining_after_current = max(0, (len(self.bar_styles) - 1) - idx)
     current_bar_hp = self.hp - (bars_remaining_after_current * self.bar_hp)
     if self.hp > 0 and current_bar_hp <= 0:
       current_bar_hp = self.bar_hp
@@ -144,15 +241,13 @@ class BossFightSession:
     }
 
   def _render_multi_bars(self, info: dict) -> str:
-    """Renders stacked multi-level boss HP bars from top (current) down to lower bars."""
     lines = []
     idx = info["index"]
-    for bar_i in range(idx, len(BAR_STYLES)):
-      f_char, e_char, p_name, _, _ = BAR_STYLES[bar_i]
-      if bar_i == idx:
-        hp_in_this_bar = info["current_bar_hp"]
-      else:
-        hp_in_this_bar = self.bar_hp
+    for bar_i in range(idx, len(self.bar_styles)):
+      f_char, e_char, _, _, _ = self.bar_styles[bar_i]
+      hp_in_this_bar = (
+          info["current_bar_hp"] if bar_i == idx else self.bar_hp
+      )
       visual = render_bar(hp_in_this_bar, self.bar_hp, f_char, e_char)
       tag = "ACTIVE" if bar_i == idx else "QUEUED"
       lines.append(f"`{visual}` **{hp_in_this_bar}/{self.bar_hp}** `[{tag}]`")
@@ -169,14 +264,20 @@ class BossFightSession:
 
     status_bits = [
         f"`+{self.weapon['atk']} ATK`",
-        f"`{int(self.weapon['crit_chance'] * 100)}%` Crit (`{self.weapon['crit_mult']}x`)",
+        (
+            f"`{int(self.weapon['crit_chance'] * 100)}%` Crit"
+            f" (`{self.weapon['crit_mult']}x`)"
+        ),
     ]
     if self.burn_turns_left > 0:
       status_bits.append(f"🔥 Burn (`{self.burn_turns_left}`t)")
 
     embed = discord.Embed(
         title=f"⚔️ Boss Test: {self.boss_name}",
-        description=f"**{info['phase_name']}** • Turn `{self.turn}` • Extra Bars: `x{info['extra_bars']}`",
+        description=(
+            f"**{info['phase_name']}** • Turn `{self.turn}` • Extra Bars:"
+            f" `x{info['extra_bars']}`"
+        ),
         color=info["color"],
     )
     embed.add_field(
@@ -189,7 +290,10 @@ class BossFightSession:
         inline=False,
     )
     embed.add_field(
-        name=f"👹 {self.boss_name} HP Bars (Total: {self.hp}/{self.total_max_hp})",
+        name=(
+            f"{self.boss_emoji} {self.boss_name} HP Bars (Total:"
+            f" {self.hp}/{self.total_max_hp})"
+        ),
         value=self._render_multi_bars(info),
         inline=False,
     )
@@ -198,6 +302,12 @@ class BossFightSession:
         value=f"`{player_bar}` **{self.player_hp}/{self.player_max_hp}**",
         inline=False,
     )
+    if self.loot_summary:
+      embed.add_field(
+          name="🎁 Loot Pool Roll",
+          value=self.loot_summary,
+          inline=False,
+      )
     embed.add_field(
         name="📜 Combat Log",
         value=self.last_log[-950:],
@@ -223,7 +333,9 @@ class BossFightView(discord.ui.View):
       return False
     return True
 
-  async def _resolve_turn(self, interaction: discord.Interaction, player_move: str):
+  async def _resolve_turn(
+      self, interaction: discord.Interaction, player_move: str
+  ):
     s = self.session
     if s.finished:
       await interaction.response.defer()
@@ -250,11 +362,14 @@ class BossFightView(discord.ui.View):
       dmg, is_crit = s._apply_crit(raw_dmg)
       s.hp = max(0, s.hp - dmg)
       crit_tag = " 💥 **CRIT!**" if is_crit else ""
-      logs.append(f"You struck with **{w['name']}** for **{dmg}** damage{crit_tag}.")
+      logs.append(
+          f"You struck with **{w['name']}** for **{dmg}** damage{crit_tag}."
+      )
     elif player_move == "skill" and s.hp > 0:
       if random.random() > w["hit_chance"]:
         logs.append(
-            f"{w['skill_emoji']} **{w['skill_name']}** missed/glanced (**0** damage)!"
+            f"{w['skill_emoji']} **{w['skill_name']}** missed/glanced (**0**"
+            " damage)!"
         )
       else:
         lo, hi = w["skill_base"]
@@ -263,30 +378,42 @@ class BossFightView(discord.ui.View):
         s.hp = max(0, s.hp - dmg)
         crit_tag = " 💥 **CRIT!**" if is_crit else ""
         logs.append(
-            f"{w['skill_emoji']} Used **{w['skill_name']}** with **{w['name']}** "
-            f"for **{dmg}** damage{crit_tag}!"
+            f"{w['skill_emoji']} Used **{w['skill_name']}** with"
+            f" **{w['name']}** for **{dmg}** damage{crit_tag}!"
         )
         if w["burn_turns"] > 0:
           s.burn_turns_left = max(s.burn_turns_left, w["burn_turns"])
-          logs.append(f"🔥 Applied **Burn** for **{w['burn_turns']}** turns!")
+          logs.append(
+              f"🔥 Applied **Burn** for **{w['burn_turns']}** turns!"
+          )
     elif player_move == "guard" and s.hp > 0:
       s.guarding = True
       heal = random.randint(10, 16)
       s.player_hp = min(s.player_max_hp, s.player_hp + heal)
       logs.append(
-          f"You raised **Guard** (50% damage reduction) and recovered **{heal}** HP."
+          f"You raised **Guard** (50% damage reduction) and recovered"
+          f" **{heal}** HP."
       )
 
     new_idx = s._active_bar_index()
     if s.hp > 0 and new_idx > prev_idx:
-      new_phase_name = BAR_STYLES[new_idx][2]
-      logs.append(f"⚡ **HEALTH BAR BROKEN!** {s.boss_name} shifts into **{new_phase_name}**!")
+      new_phase_name = s.bar_styles[new_idx][2]
+      logs.append(
+          f"⚡ **HEALTH BAR BROKEN!** {s.boss_name} shifts into"
+          f" **{new_phase_name}**!"
+      )
 
     if s.hp <= 0:
       s.finished = True
-      s.last_log = "\n".join(logs) + f"\n🏆 **{s.boss_name}'s final HP bar shattered — Boss defeated!**"
+      s.loot_summary = roll_boss_loot(s.boss_data)
+      s.last_log = (
+          "\n".join(logs)
+          + f"\n🏆 **{s.boss_name}'s final HP bar shattered — Loot dropped!**"
+      )
       self._disable_all()
-      await interaction.response.edit_message(embed=s.build_embed(), view=self)
+      await interaction.response.edit_message(
+          embed=s.build_embed(), view=self
+      )
       return
 
     info_after = s.current_phase_info()
@@ -298,8 +425,8 @@ class BossFightView(discord.ui.View):
 
     s.player_hp = max(0, s.player_hp - mitigated_dmg)
     logs.append(
-        f"**{s.boss_name}** hits you for **{mitigated_dmg}** "
-        f"{'(guarded) ' if s.guarding else ''}damage."
+        f"**{s.boss_name}** hits you for **{mitigated_dmg}**"
+        f" {'(guarded) ' if s.guarding else ''}damage."
     )
 
     if s.player_hp <= 0:
@@ -317,24 +444,42 @@ class BossFightView(discord.ui.View):
       if isinstance(item, discord.ui.Button):
         item.disabled = True
 
-  @discord.ui.button(label="Strike", style=discord.ButtonStyle.primary, emoji="⚔️")
-  async def strike_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+  @discord.ui.button(
+      label="Strike", style=discord.ButtonStyle.primary, emoji="⚔️"
+  )
+  async def strike_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
     await self._resolve_turn(interaction, "strike")
 
-  @discord.ui.button(label="Weapon Skill", style=discord.ButtonStyle.danger, emoji="💥")
-  async def skill_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+  @discord.ui.button(
+      label="Weapon Skill", style=discord.ButtonStyle.danger, emoji="💥"
+  )
+  async def skill_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
     await self._resolve_turn(interaction, "skill")
 
-  @discord.ui.button(label="Guard", style=discord.ButtonStyle.secondary, emoji="🛡️")
-  async def guard_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+  @discord.ui.button(
+      label="Guard", style=discord.ButtonStyle.secondary, emoji="🛡️"
+  )
+  async def guard_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
     await self._resolve_turn(interaction, "guard")
 
-  @discord.ui.button(label="Retreat", style=discord.ButtonStyle.secondary, emoji="🏃")
-  async def retreat_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+  @discord.ui.button(
+      label="Retreat", style=discord.ButtonStyle.secondary, emoji="🏃"
+  )
+  async def retreat_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
     self.session.finished = True
     self.session.last_log += "\n🏃 You retreated from the lab encounter."
     self._disable_all()
-    await interaction.response.edit_message(embed=self.session.build_embed(), view=self)
+    await interaction.response.edit_message(
+        embed=self.session.build_embed(), view=self
+    )
 
 
 class DungeonBossCog(commands.Cog):
@@ -344,15 +489,22 @@ class DungeonBossCog(commands.Cog):
 
   @app_commands.command(
       name="boss",
-      description="Start a multi-bar boss test with crit & weapon skills in Sleepys Lab.",
+      description="Start a random multi-bar boss encounter with its own loot pool in Sleepys Lab.",
   )
   @app_commands.choices(
       weapon=[
           app_commands.Choice(name="Rusty Sword (10% Crit)", value="rusty_sword"),
           app_commands.Choice(name="Iron Blade (15% Crit)", value="iron_blade"),
-          app_commands.Choice(name="Stormfang Dagger (28% Crit)", value="stormfang_dagger"),
-          app_commands.Choice(name="Sunfire Halberd (16% Crit + Burn)", value="sunfire_halberd"),
-          app_commands.Choice(name="Runed Greatsword (18% Crit • 2.0x)", value="runed_greatsword"),
+          app_commands.Choice(
+              name="Stormfang Dagger (28% Crit)", value="stormfang_dagger"
+          ),
+          app_commands.Choice(
+              name="Sunfire Halberd (16% Crit + Burn)", value="sunfire_halberd"
+          ),
+          app_commands.Choice(
+              name="Runed Greatsword (18% Crit • 2.0x)",
+              value="runed_greatsword",
+          ),
       ],
       armor=[
           app_commands.Choice(name="Worn Cloth (Starter)", value="worn_cloth"),
@@ -368,10 +520,12 @@ class DungeonBossCog(commands.Cog):
   ):
     weapon_key = weapon.value if weapon else "rusty_sword"
     armor_key = armor.value if armor else "worn_cloth"
+    chosen_boss = random.choice(BOSS_ROSTER)
     session = BossFightSession(
         challenger_id=interaction.user.id,
         weapon_key=weapon_key,
         armor_key=armor_key,
+        boss_data=chosen_boss,
     )
     view = BossFightView(session)
     await interaction.response.send_message(embed=session.build_embed(), view=view)
