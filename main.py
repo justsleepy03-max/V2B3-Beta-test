@@ -9,7 +9,7 @@ DATA_DIR = "/app/data" if os.path.isdir("/app/data") else "./lab_data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 COGS = [
-    # Add experimental cogs here, e.g. "lab_ping_cog"
+    "dungeon_boss_cog",
 ]
 
 
