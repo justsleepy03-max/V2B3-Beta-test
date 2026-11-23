@@ -13,6 +13,7 @@ COGS = [
     "bag_cog",
     "shop_cog",
     "area_cog",
+    "quest_cog",
 ]
 
 
