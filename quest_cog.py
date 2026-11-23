@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from area_cog import get_user_area_record
+from area_cog import AREAS, get_user_area_record
 from bag_cog import CATALOG, add_item_to_bag
 
 DATA_DIR = "/app/data" if os.path.isdir("/app/data") else "./lab_data"
@@ -12,45 +12,49 @@ os.makedirs(DATA_DIR, exist_ok=True)
 QUEST_FILE = os.path.join(DATA_DIR, "v2b3_lab_quests.json")
 
 QUESTS = {
-    "field_herbalist": {
-        "title": "Field Herbalist",
-        "emoji": "🌿",
-        "stat": "gather",
-        "goal": 5,
-        "coins": 120,
+    "foundry_gatherer": {
+        "title": "Foundry Salvager",
+        "emoji": "🏭",
+        "area_key": "sentinel_foundry",
+        "action": "gather",
+        "goal": 4,
+        "coins": 140,
         "reward_item": "arcane_alloy",
         "reward_qty": 2,
-        "summary": "Gather 5 times in /area • Reward: 120 Coins + 2x Arcane Alloy",
+        "summary": "Gather 4 times in Sentinel Foundry • Reward: 140 Coins + 2x Arcane Alloy",
     },
-    "blade_and_pelt": {
-        "title": "Blade & Pelt",
-        "emoji": "🏹",
-        "stat": "hunt",
+    "caldera_hunter": {
+        "title": "Magma Stalker",
+        "emoji": "🌋",
+        "area_key": "cinder_caldera",
+        "action": "hunt",
         "goal": 3,
-        "coins": 180,
+        "coins": 200,
         "reward_item": "volcanic_fang",
         "reward_qty": 2,
-        "summary": "Hunt 3 times with a sword equipped • Reward: 180 Coins + 2x Volcanic Fang",
+        "summary": "Hunt 3 times in Cinder Caldera (Sword required) • Reward: 200 Coins + 2x Volcanic Fang",
     },
-    "anglers_first_catch": {
-        "title": "Angler's First Catch",
-        "emoji": "🎣",
-        "stat": "fish",
+    "reach_angler": {
+        "title": "Glacial Angler",
+        "emoji": "❄️",
+        "area_key": "frostbound_reach",
+        "action": "fish",
         "goal": 3,
-        "coins": 160,
+        "coins": 190,
         "reward_item": "frost_core",
         "reward_qty": 2,
-        "summary": "Fish 3 times with a fishing rod equipped • Reward: 160 Coins + 2x Frost Core",
+        "summary": "Fish 3 times in Frostbound Reach (Rod required) • Reward: 190 Coins + 2x Frost Core",
     },
-    "wilds_veteran": {
-        "title": "Wilds Explorer",
-        "emoji": "🧭",
-        "stat": "gather",
-        "goal": 12,
-        "coins": 260,
+    "spire_forager": {
+        "title": "Twilight Harvester",
+        "emoji": "🌑",
+        "area_key": "shadow_spire",
+        "action": "gather",
+        "goal": 4,
+        "coins": 240,
         "reward_item": "shadow_silk",
         "reward_qty": 2,
-        "summary": "Gather 12 times in /area • Reward: 260 Coins + 2x Shadow Silk",
+        "summary": "Gather 4 times in Shadow Spire • Reward: 240 Coins + 2x Shadow Silk",
     },
 }
 
@@ -70,22 +74,67 @@ def save_all_quests(data: dict) -> None:
     json.dump(data, f, indent=2)
 
 
-def get_claimed_quests(user_id: int) -> set[str]:
+def _get_user_quest_data(user_id: int) -> dict:
   data = load_all_quests()
-  entry = data.get(str(user_id), {})
-  claimed = entry.get("claimed", [])
-  return {q for q in claimed if q in QUESTS}
+  uid = str(user_id)
+  entry = data.get(uid)
+  if not isinstance(entry, dict):
+    entry = {"progress": {}, "claimed": []}
+  entry.setdefault("progress", {})
+  entry.setdefault("claimed", [])
+  return entry
+
+
+def get_quest_progress(user_id: int, quest_key: str) -> int:
+  entry = _get_user_quest_data(user_id)
+  return int(entry.get("progress", {}).get(quest_key, 0))
+
+
+def get_claimed_quests(user_id: int) -> set[str]:
+  entry = _get_user_quest_data(user_id)
+  return {q for q in entry.get("claimed", []) if q in QUESTS}
 
 
 def mark_quest_claimed(user_id: int, quest_key: str) -> None:
   data = load_all_quests()
   uid = str(user_id)
-  entry = data.setdefault(uid, {"claimed": []})
+  entry = data.setdefault(uid, {"progress": {}, "claimed": []})
+  entry.setdefault("progress", {})
   claimed = set(entry.get("claimed", []))
   claimed.add(quest_key)
   entry["claimed"] = sorted(claimed)
   data[uid] = entry
   save_all_quests(data)
+
+
+def advance_area_quests(user_id: int, area_key: str, action: str) -> list[str]:
+  data = load_all_quests()
+  uid = str(user_id)
+  entry = data.setdefault(uid, {"progress": {}, "claimed": []})
+  progress = entry.setdefault("progress", {})
+  claimed = set(entry.get("claimed", []))
+
+  completed_now = []
+  changed = False
+
+  for q_key, q in QUESTS.items():
+    if q_key in claimed:
+      continue
+    if q.get("area_key") == area_key and q.get("action") == action:
+      goal = int(q.get("goal", 1))
+      cur = int(progress.get(q_key, 0))
+      if cur < goal:
+        cur += 1
+        progress[q_key] = cur
+        changed = True
+        if cur >= goal:
+          completed_now.append(q["title"])
+
+  if changed:
+    data[uid] = entry
+    save_all_quests(data)
+
+  return completed_now
 
 
 def _progress_bar(current: int, goal: int, width: int = 8) -> str:
@@ -95,23 +144,29 @@ def _progress_bar(current: int, goal: int, width: int = 8) -> str:
   return "█" * filled + "░" * (width - filled)
 
 
+def _area_label(area_key: str) -> str:
+  info = AREAS.get(area_key)
+  if info:
+    return f"{info['emoji']} {info['name']}"
+  return area_key
+
+
 class QuestSelect(discord.ui.Select):
 
   def __init__(self, parent_view: "QuestView"):
     self.parent_view = parent_view
     claimed = get_claimed_quests(parent_view.user_id)
-    area_rec = get_user_area_record(parent_view.user_id)
-    stats = area_rec.get("stats", {})
 
     options = []
     for key, q in QUESTS.items():
-      cur = int(stats.get(q["stat"], 0))
+      cur = get_quest_progress(parent_view.user_id, key)
+      goal = int(q["goal"])
       if key in claimed:
         status_tag = "[Claimed]"
-      elif cur >= q["goal"]:
+      elif cur >= goal:
         status_tag = "[Ready!]"
       else:
-        status_tag = f"[{cur}/{q['goal']}]"
+        status_tag = f"[{cur}/{goal}]"
 
       options.append(
           discord.SelectOption(
@@ -123,7 +178,7 @@ class QuestSelect(discord.ui.Select):
       )
 
     super().__init__(
-        placeholder="Select a quest to inspect or claim...",
+        placeholder="Choose an area quest to inspect or claim...",
         min_values=1,
         max_values=1,
         options=options,
@@ -156,31 +211,29 @@ class QuestView(discord.ui.View):
 
   def build_embed(self, username: str) -> discord.Embed:
     area_rec = get_user_area_record(self.user_id)
-    stats = area_rec.get("stats", {})
+    current_area = _area_label(area_rec.get("current_area", "sleepys_lab"))
     claimed = get_claimed_quests(self.user_id)
 
-    g_count = int(stats.get("gather", 0))
-    h_count = int(stats.get("hunt", 0))
-    f_count = int(stats.get("fish", 0))
-
     desc_lines = [
-        f"📊 **Your Area Totals:** Gather `{g_count}` • Hunt `{h_count}` • Fish `{f_count}`",
-        "Pick a quest from the dropdown below, then press **Claim Reward** when ready.",
+        f"📍 **Current Area:** {current_area} *(Travel via `/area` to complete matching zone quests)*",
+        "Select a quest from the dropdown below, travel to its area in `/area`, and press **Claim Reward** when complete.",
     ]
     if self.status_note:
       desc_lines.append(f"\n{self.status_note}")
 
     embed = discord.Embed(
-        title=f"📜 V2 Lab Quests — {username}",
+        title=f"📜 V2 Lab Area Quests — {username}",
         description="\n".join(desc_lines),
         color=0x00F0FF,
     )
 
     quest_lines = []
     for key, q in QUESTS.items():
-      cur = int(stats.get(q["stat"], 0))
+      cur = get_quest_progress(self.user_id, key)
       goal = int(q["goal"])
       bar = _progress_bar(cur, goal)
+      zone_str = _area_label(q["area_key"])
+      action_str = q["action"].capitalize()
       reward_meta = CATALOG.get(
           q["reward_item"], {"name": q["reward_item"], "emoji": "📦"}
       )
@@ -199,11 +252,11 @@ class QuestView(discord.ui.View):
       marker = "▸ " if key == self.selected_key else ""
       quest_lines.append(
           f"{marker}{q['emoji']} **{q['title']}** ({badge}) — `{bar}`\n"
-          f"└ *{q['summary']}* ({reward_str})"
+          f"└ 🎯 **{action_str}** in {zone_str} • Reward: {reward_str}"
       )
 
     embed.add_field(
-        name="📋 Available Quests",
+        name="📋 Area Quest Board",
         value="\n".join(quest_lines),
         inline=False,
     )
@@ -238,11 +291,12 @@ class QuestView(discord.ui.View):
       )
       return
 
-    area_rec = get_user_area_record(interaction.user.id)
-    cur = int(area_rec.get("stats", {}).get(q["stat"], 0))
-    if cur < int(q["goal"]):
+    cur = get_quest_progress(interaction.user.id, q_key)
+    goal = int(q["goal"])
+    if cur < goal:
+      zone_str = _area_label(q["area_key"])
       self.status_note = (
-          f"❌ **{q['title']}** isn't done yet (`{cur}/{q['goal']}` `{q['stat']}`)."
+          f"❌ **{q['title']}** isn't finished yet (`{cur}/{goal}` {q['action']} in {zone_str})."
       )
       await interaction.response.edit_message(
           embed=self.build_embed(interaction.user.display_name), view=self
@@ -283,7 +337,7 @@ class QuestView(discord.ui.View):
           ephemeral=True,
       )
       return
-    self.status_note = "🔄 Progress refreshed from `/area` totals."
+    self.status_note = "🔄 Area quest progress refreshed."
     await interaction.response.edit_message(
         embed=self.build_embed(interaction.user.display_name), view=self
     )
@@ -296,7 +350,7 @@ class LabQuestCog(commands.Cog):
 
   @app_commands.command(
       name="quest",
-      description="View quest progress from /area actions and claim bag rewards.",
+      description="Inspect area quests, track progress in /area, and claim bag rewards.",
   )
   async def quest(self, interaction: discord.Interaction):
     view = QuestView(user_id=interaction.user.id)
