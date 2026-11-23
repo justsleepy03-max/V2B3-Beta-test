@@ -4,12 +4,60 @@ from discord import app_commands
 from discord.ext import commands
 
 WEAPONS = {
-    "rusty_sword": {"name": "Rusty Sword", "atk": 6, "emoji": "🗡️"},
-    "iron_blade": {"name": "Iron Blade", "atk": 14, "emoji": "⚔️"},
+    "rusty_sword": {
+        "name": "Rusty Sword",
+        "atk": 6,
+        "emoji": "🗡️",
+        "skill_name": "Ragged Slash",
+        "skill_emoji": "⚡",
+        "hit_chance": 0.90,
+        "skill_base": (18, 26),
+        "skill_atk_mult": 1.15,
+        "burn_turns": 0,
+    },
+    "iron_blade": {
+        "name": "Iron Blade",
+        "atk": 14,
+        "emoji": "⚔️",
+        "skill_name": "Cleaving Arc",
+        "skill_emoji": "🌀",
+        "hit_chance": 0.80,
+        "skill_base": (24, 34),
+        "skill_atk_mult": 1.30,
+        "burn_turns": 0,
+    },
+    "stormfang_dagger": {
+        "name": "Stormfang Dagger",
+        "atk": 18,
+        "emoji": "🗡️",
+        "skill_name": "Twin Viper Strike",
+        "skill_emoji": "🐍",
+        "hit_chance": 0.85,
+        "skill_base": (26, 36),
+        "skill_atk_mult": 1.35,
+        "burn_turns": 0,
+    },
+    "sunfire_halberd": {
+        "name": "Sunfire Halberd",
+        "atk": 21,
+        "emoji": "🔱",
+        "skill_name": "Solar Piercer",
+        "skill_emoji": "☀️",
+        "hit_chance": 0.75,
+        "skill_base": (30, 42),
+        "skill_atk_mult": 1.45,
+        "burn_turns": 2,
+    },
     "runed_greatsword": {
         "name": "Runed Greatsword",
         "atk": 24,
-        "emoji": "🔱",
+        "emoji": "⚔️",
+        "skill_name": "Astral Sundering",
+        "skill_emoji": "💥",
+        "hit_chance": 0.70,
+        "skill_base": (36, 52),
+        "skill_atk_mult": 1.60,
+        "burn_turns": 0,
     },
 }
 
@@ -42,11 +90,13 @@ class BossFightSession:
     self.player_hp = 100
     self.turn = 1
     self.guarding = False
+    self.burn_turns_left = 0
     self.finished = False
     self.last_log = (
         f"Equipped {self.weapon['emoji']} **{self.weapon['name']}**"
-        f" (+{self.weapon['atk']} ATK) and {self.armor['emoji']}"
-        f" **{self.armor['name']}** (+{self.armor['def']} DEF).\nThe"
+        f" (`+{self.weapon['atk']} ATK` • Skill:"
+        f" **{self.weapon['skill_name']}**) and {self.armor['emoji']}"
+        f" **{self.armor['name']}** (`+{self.armor['def']} DEF`).\nThe"
         " **Abyssal Sentinel** awakens in **Phase 1: Armored Warden**."
     )
 
@@ -66,17 +116,21 @@ class BossFightSession:
     boss_bar = render_hp_bar(self.hp, self.max_hp)
     player_bar = render_hp_bar(self.player_hp, self.player_max_hp)
 
+    status_bits = [f"`+{self.weapon['atk']} ATK`"]
+    if self.burn_turns_left > 0:
+      status_bits.append(f"🔥 Burn (`{self.burn_turns_left}`t)")
+
     embed = discord.Embed(
         title=f"⚔️ Boss Test: {self.boss_name}",
         description=f"**{phase_label}** • Turn `{self.turn}`",
         color=color,
     )
     embed.add_field(
-        name="🎒 Active Gear",
+        name="🎒 Active Gear & Skill",
         value=(
-            f"{self.weapon['emoji']} **{self.weapon['name']}** (`+"
-            f"{self.weapon['atk']} ATK`)\n{self.armor['emoji']}"
-            f" **{self.armor['name']}** (`+{self.armor['def']} DEF`)"
+            f"{self.weapon['emoji']} **{self.weapon['name']}** ({' • ' .join(status_bits)})\n"
+            f"{self.weapon['skill_emoji']} **Skill:** {self.weapon['skill_name']} (`{int(self.weapon['hit_chance'] * 100)}%` hit)\n"
+            f"{self.armor['emoji']} **{self.armor['name']}** (`+{self.armor['def']} DEF`)"
         ),
         inline=False,
     )
@@ -103,6 +157,9 @@ class BossFightView(discord.ui.View):
   def __init__(self, session: BossFightSession):
     super().__init__(timeout=180)
     self.session = session
+    # Dynamically label the weapon skill button to match the equipped weapon
+    self.skill_btn.label = session.weapon["skill_name"]
+    self.skill_btn.emoji = session.weapon["skill_emoji"]
 
   async def interaction_check(self, interaction: discord.Interaction) -> bool:
     if interaction.user.id != self.session.challenger_id:
@@ -123,29 +180,43 @@ class BossFightView(discord.ui.View):
 
     s.guarding = False
     logs = []
-    atk = s.weapon["atk"]
+    w = s.weapon
+    atk = w["atk"]
     defense = s.armor["def"]
 
-    if player_move == "strike":
+    if s.burn_turns_left > 0 and s.hp > 0:
+      burn_dmg = random.randint(10, 16)
+      s.hp = max(0, s.hp - burn_dmg)
+      s.burn_turns_left -= 1
+      logs.append(
+          f"🔥 **Burn** sears {s.boss_name} for **{burn_dmg}** damage"
+          f" (`{s.burn_turns_left}` turn(s) left)."
+      )
+
+    if player_move == "strike" and s.hp > 0:
       dmg = random.randint(16, 24) + atk
       s.hp = max(0, s.hp - dmg)
-      logs.append(
-          f"You struck with **{s.weapon['name']}** for **{dmg}** damage."
-      )
-    elif player_move == "skill":
-      if random.random() < 0.25:
+      logs.append(f"You struck with **{w['name']}** for **{dmg}** damage.")
+    elif player_move == "skill" and s.hp > 0:
+      if random.random() > w["hit_chance"]:
         logs.append(
-            f"Your **Heavy Skill** with **{s.weapon['name']}** missed/glanced"
-            " (**0** damage)!"
+            f"{w['skill_emoji']} **{w['skill_name']}** missed/glanced (**0**"
+            " damage)!"
         )
       else:
-        dmg = random.randint(28, 40) + int(atk * 1.35)
+        lo, hi = w["skill_base"]
+        dmg = random.randint(lo, hi) + int(atk * w["skill_atk_mult"])
         s.hp = max(0, s.hp - dmg)
         logs.append(
-            f"You hit with **Heavy Skill** using **{s.weapon['name']}** for"
-            f" **{dmg}** damage!"
+            f"{w['skill_emoji']} Used **{w['skill_name']}** with"
+            f" **{w['name']}** for **{dmg}** damage!"
         )
-    elif player_move == "guard":
+        if w["burn_turns"] > 0:
+          s.burn_turns_left = max(s.burn_turns_left, w["burn_turns"])
+          logs.append(
+              f"🔥 Applied **Burn** for **{w['burn_turns']}** turns!"
+          )
+    elif player_move == "guard" and s.hp > 0:
       s.guarding = True
       heal = random.randint(8, 14)
       s.player_hp = min(s.player_max_hp, s.player_hp + heal)
@@ -199,7 +270,7 @@ class BossFightView(discord.ui.View):
     await self._resolve_turn(interaction, "strike")
 
   @discord.ui.button(
-      label="Heavy Skill", style=discord.ButtonStyle.danger, emoji="🔥"
+      label="Weapon Skill", style=discord.ButtonStyle.danger, emoji="💥"
   )
   async def skill_btn(
       self, interaction: discord.Interaction, button: discord.ui.Button
@@ -235,12 +306,16 @@ class DungeonBossCog(commands.Cog):
 
   @app_commands.command(
       name="boss",
-      description="Start a multi-phase boss test with starter gear in Sleepys Lab.",
+      description="Start a multi-phase boss test with weapons & skills in Sleepys Lab.",
   )
   @app_commands.choices(
       weapon=[
           app_commands.Choice(name="Rusty Sword (Starter)", value="rusty_sword"),
           app_commands.Choice(name="Iron Blade", value="iron_blade"),
+          app_commands.Choice(
+              name="Stormfang Dagger", value="stormfang_dagger"
+          ),
+          app_commands.Choice(name="Sunfire Halberd", value="sunfire_halberd"),
           app_commands.Choice(
               name="Runed Greatsword", value="runed_greatsword"
           ),
