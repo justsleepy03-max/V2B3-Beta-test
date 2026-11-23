@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bag_cog import CATALOG, add_item_to_bag
+from bag_cog import CATALOG, add_item_to_bag, has_equipped_rod, has_equipped_sword
 
 DATA_DIR = "/app/data" if os.path.isdir("/app/data") else "./lab_data"
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -126,6 +126,21 @@ def set_user_area_key(user_id: int, area_key: str) -> str:
   return area_key
 
 
+def _deny_reason_for_action(user_id: int, action: str) -> str | None:
+  if action == "hunt" and not has_equipped_sword(user_id):
+    return (
+        "🚫 **Hunt Denied — Sword Required:** You must have a sword equipped "
+        "(such as Rusty Sword, Iron Blade, Runed Greatsword, or Starlight Blade) "
+        "to hunt. Equip one with `/equip` or `/bag` first."
+    )
+  if action == "fish" and not has_equipped_rod(user_id):
+    return (
+        "🚫 **Fish Denied — Fishing Rod Required:** You must buy a fishing rod in "
+        "`/shop` and equip it with `/equip` before you can fish."
+    )
+  return None
+
+
 def record_activity_and_loot(user_id: int, action: str) -> str:
   area_key = get_user_area_key(user_id)
   area_info = AREAS[area_key]
@@ -229,7 +244,6 @@ class AreaView(discord.ui.View):
   def _rebuild_components(self):
     self.clear_items()
 
-    # Row 0: Area activities (Gather, Hunt, Fish)
     gather_btn = discord.ui.Button(
         label="Gather", style=discord.ButtonStyle.success, emoji="🌿", row=0
     )
@@ -245,7 +259,6 @@ class AreaView(discord.ui.View):
     )
     fish_btn.callback = self._fish_callback
 
-    # Row 1: Navigation & list view controls
     toggle_btn = discord.ui.Button(
         label="Hide Travel" if self.menu_open else "Travel Menu",
         style=discord.ButtonStyle.secondary,
@@ -327,6 +340,13 @@ class AreaView(discord.ui.View):
 
   async def _run_activity(self, interaction: discord.Interaction, action: str):
     if not await self._guard_user(interaction):
+      return
+    denial = _deny_reason_for_action(interaction.user.id, action)
+    if denial:
+      self.status_note = denial
+      await interaction.response.edit_message(
+          embed=self.build_embed(interaction.user.display_name), view=self
+      )
       return
     self.status_note = record_activity_and_loot(interaction.user.id, action)
     await interaction.response.edit_message(
